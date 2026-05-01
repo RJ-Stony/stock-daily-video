@@ -12,10 +12,14 @@ export async function renderThumbnail(data: DailyData): Promise<string> {
   const entryPoint = path.resolve('src/index.ts');
   const serveUrl = await bundle({ entryPoint });
 
+  // render.ts와 동일 — 클라우드 컨테이너 SSL 인증서 검증 우회.
+  const chromiumOptions = { ignoreCertificateErrors: true };
+
   const composition = await selectComposition({
     serveUrl,
     id: 'Daily',
     inputProps: data,
+    chromiumOptions,
   });
 
   const outDir = path.resolve('out');
@@ -30,6 +34,7 @@ export async function renderThumbnail(data: DailyData): Promise<string> {
     imageFormat: 'jpeg',
     jpegQuality: 90,
     inputProps: data,
+    chromiumOptions,
   });
 
   return outPath;
