@@ -6,12 +6,13 @@ import { fetchPrices } from './fetch-prices';
 import { fetchNewsBatch } from './fetch-news';
 import { fetchInsightBatch, translateReactionsBatch } from './fetch-gemma-insight';
 import { fetchYouTubeBatch } from './fetch-youtube';
-import { fetchRedditBatch } from './fetch-reddit';
+import { fetchCommentsBatch } from './fetch-comments';
 import { renderDaily } from './render';
 import { uploadFile } from './upload';
 import { renderThumbnail } from './render-thumbnail';
 import { sendKakaoMessage } from './notify-kakao';
-import { DailyDataSchema, type EnrichedHolding, type Insight } from '../src/types';
+import { z } from 'zod';
+import { DailyDataSchema, EnrichedHoldingSchema, type EnrichedHolding, type Insight } from '../src/types';
 
 function emptyInsight(ticker: string): Insight {
   return { ticker, headline: '', body: '', generatedAt: new Date().toISOString() };
@@ -25,12 +26,24 @@ async function main(): Promise<void> {
   const cachePath = join('out', 'cache', `${today}.json`);
   mkdirSync(dirname(cachePath), { recursive: true });
 
-  let enrichedHoldings: EnrichedHolding[];
+  let enrichedHoldings: EnrichedHolding[] | null = null;
 
   if (existsSync(cachePath)) {
-    console.log('[run] cache hit', cachePath);
-    enrichedHoldings = JSON.parse(readFileSync(cachePath, 'utf8')) as EnrichedHolding[];
-  } else {
+    try {
+      const raw = JSON.parse(readFileSync(cachePath, 'utf8')) as unknown;
+      const parsed = z.array(EnrichedHoldingSchema).safeParse(raw);
+      if (parsed.success) {
+        console.log('[run] cache hit', cachePath);
+        enrichedHoldings = parsed.data;
+      } else {
+        console.warn('[run] cache schema mismatch — 재생성', cachePath);
+      }
+    } catch (err) {
+      console.warn('[run] cache parse 실패 — 재생성', err instanceof Error ? err.message : err);
+    }
+  }
+
+  if (enrichedHoldings === null) {
     console.log('[run] cache miss — 모든 fetch 실행');
 
     console.time('[run] notion');
@@ -65,14 +78,16 @@ async function main(): Promise<void> {
       news: newsByYahooSymbol[h.yahooSymbol] ?? [],
     }));
 
-    // 2차 enrichment — 3개 동시
-    console.time('[run] enrich');
-    const [insights, videos, reactions] = await Promise.all([
+    console.time('[run] enrich-insights+videos');
+    const [insights, videos] = await Promise.all([
       fetchInsightBatch(holdingsWithData),
       fetchYouTubeBatch(holdingsWithData),
-      fetchRedditBatch(holdingsWithData),
     ]);
-    console.timeEnd('[run] enrich');
+    console.timeEnd('[run] enrich-insights+videos');
+
+    console.time('[run] enrich-comments');
+    const reactions = await fetchCommentsBatch(holdingsWithData, videos);
+    console.timeEnd('[run] enrich-comments');
 
     console.time('[run] translate-reactions');
     const translatedReactions = await translateReactionsBatch(reactions);
@@ -89,6 +104,8 @@ async function main(): Promise<void> {
     writeFileSync(cachePath, JSON.stringify(enrichedHoldings, null, 2), 'utf8');
     console.log('[run] cache saved', cachePath);
   }
+
+  if (!enrichedHoldings) throw new Error('unreachable');
 
   const data = DailyDataSchema.parse({ date: today, holdings: enrichedHoldings });
 
