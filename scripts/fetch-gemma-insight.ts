@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { GoogleGenAI } from '@google/genai';
-import type { HoldingWithData, Insight, RedditPost } from '../src/types';
+import type { HoldingWithData, Insight, Comment } from '../src/types';
 
 const DEFAULT_MODEL = 'gemma-4-31b-it';
 
@@ -151,12 +151,15 @@ export async function fetchInsightBatch(
   return out;
 }
 
-interface TranslatedPost {
-  title: string;
-  excerpt: string;
+interface TranslatedComment {
+  text: string;
 }
 
-const TRANSLATE_INSTRUCTION = `너는 영문 Reddit 게시물을 한국어로 번역하는 전문가다.
+const TRANSLATE_INSTRUCTION = `너는 영문 YouTube 영상 댓글을 한국어로 번역하는 전문가다.
+
+언어 감지 규칙 (가장 먼저 적용):
+- 입력 댓글이 이미 한국어면 번역하지 말고 원본 그대로 출력
+- 영문 또는 다른 언어면 한국어로 번역
 
 말투 규칙:
 - 정중체 ("~합니다", "~입니다", "~했습니다"). 반말 금지
@@ -179,19 +182,20 @@ const TRANSLATE_INSTRUCTION = `너는 영문 Reddit 게시물을 한국어로 �
 - 욕설·과격 표현은 부드럽게 다듬기
 
 응답 형식 (반드시 JSON 배열, 입력 순서 유지):
-[{"title":"한국어 제목","excerpt":"한국어 발췌"}, ...]
+[{"text":"한국어 댓글"}, ...]
 
 규칙:
-- 제목 50자 이내, 발췌 200자 이내
-- 발췌가 비어있으면 빈 문자열 ""
+- 댓글 본문 320자 이내
 - JSON 외 다른 텍스트 출력 금지`;
 
-function buildTranslatePrompt(posts: RedditPost[]): string {
-  const lines = posts.map((p, i) => `${i + 1}. [r/${p.subreddit}]\n   title: ${p.title}\n   excerpt: ${p.excerpt || '(empty)'}`).join('\n\n');
-  return `다음 ${posts.length}개 Reddit 게시물을 한국어로 번역하세요.\n\n${lines}\n\nJSON 배열만 출력.`;
+function buildTranslatePrompt(comments: Comment[]): string {
+  const lines = comments
+    .map((c, i) => `${i + 1}. [${c.channel}] ${c.text}`)
+    .join('\n\n');
+  return `다음 ${comments.length}개 YouTube 영상 댓글을 한국어로 번역하세요.\n\n${lines}\n\nJSON 배열만 출력.`;
 }
 
-function extractJsonArray(text: string): TranslatedPost[] | null {
+function extractJsonArray(text: string): TranslatedComment[] | null {
   const cleaned = text.replace(/```json\s*|\s*```/gi, '').trim();
   const start = cleaned.indexOf('[');
   const end = cleaned.lastIndexOf(']');
@@ -200,12 +204,11 @@ function extractJsonArray(text: string): TranslatedPost[] | null {
     const parsed = JSON.parse(cleaned.slice(start, end + 1));
     if (!Array.isArray(parsed)) return null;
     return parsed
-      .filter((it: unknown) => it && typeof it === 'object' && typeof (it as Record<string, unknown>).title === 'string')
+      .filter((it: unknown) => it && typeof it === 'object' && typeof (it as Record<string, unknown>).text === 'string')
       .map((it: unknown) => {
         const obj = it as Record<string, unknown>;
         return {
-          title: typeof obj.title === 'string' ? obj.title : '',
-          excerpt: typeof obj.excerpt === 'string' ? obj.excerpt : '',
+          text: typeof obj.text === 'string' ? obj.text : '',
         };
       });
   } catch {
@@ -214,13 +217,13 @@ function extractJsonArray(text: string): TranslatedPost[] | null {
 }
 
 /**
- * Reddit 게시물의 title/excerpt를 한국어 친숙 어투로 번역.
- * 종목 단위로 batch 호출 (게시물 3개 한 번에).
+ * YouTube 영상 댓글의 text를 한국어 친숙 어투로 번역.
+ * 종목 단위로 batch 호출 (댓글 3개 한 번에).
  * 실패 시 원본 그대로 반환 (graceful degrade).
  */
 export async function translateReactionsBatch(
-  reactionsByYahooSymbol: Record<string, RedditPost[]>,
-): Promise<Record<string, RedditPost[]>> {
+  reactionsByYahooSymbol: Record<string, Comment[]>,
+): Promise<Record<string, Comment[]>> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     console.warn('[gemma/translate] GEMINI_API_KEY 없음 — 원본 영어 그대로 반환');
@@ -229,16 +232,16 @@ export async function translateReactionsBatch(
 
   const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
   const ai = new GoogleGenAI({ apiKey });
-  const out: Record<string, RedditPost[]> = {};
+  const out: Record<string, Comment[]> = {};
   const entries = Object.entries(reactionsByYahooSymbol);
 
   for (let i = 0; i < entries.length; i++) {
-    const [symbol, posts] = entries[i];
-    if (posts.length === 0) {
+    const [symbol, comments] = entries[i];
+    if (comments.length === 0) {
       out[symbol] = [];
       continue;
     }
-    process.stdout.write(`[gemma/translate] (${i + 1}/${entries.length}) ${symbol} (${posts.length}건) 번역 중... `);
+    process.stdout.write(`[gemma/translate] (${i + 1}/${entries.length}) ${symbol} (${comments.length}건) 번역 중... `);
     const t0 = Date.now();
     try {
       const result = await ai.models.generateContent({
@@ -246,7 +249,7 @@ export async function translateReactionsBatch(
         contents: [
           {
             role: 'user',
-            parts: [{ text: `${TRANSLATE_INSTRUCTION}\n\n---\n\n${buildTranslatePrompt(posts)}` }],
+            parts: [{ text: `${TRANSLATE_INSTRUCTION}\n\n---\n\n${buildTranslatePrompt(comments)}` }],
           },
         ],
         config: { temperature: 0.3, maxOutputTokens: 1200 },
@@ -254,21 +257,20 @@ export async function translateReactionsBatch(
       const text = result.text ?? '';
       const translated = extractJsonArray(text);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-      if (translated && translated.length === posts.length) {
-        out[symbol] = posts.map((p, idx) => ({
-          ...p,
-          title: translated[idx].title || p.title,
-          excerpt: translated[idx].excerpt ?? p.excerpt,
+      if (translated && translated.length === comments.length) {
+        out[symbol] = comments.map((c, idx) => ({
+          ...c,
+          text: translated[idx].text || c.text,
         }));
         console.log(`완료 (${elapsed}s)`);
       } else {
         console.log(`길이 mismatch (${elapsed}s) — 원본 유지`);
-        out[symbol] = posts;
+        out[symbol] = comments;
       }
     } catch (err) {
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
       console.log(`실패 (${elapsed}s) — ${err instanceof Error ? err.message : err}`);
-      out[symbol] = posts;
+      out[symbol] = comments;
     }
   }
 
