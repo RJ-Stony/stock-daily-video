@@ -52,20 +52,23 @@ export const YouTubeVideoSchema = z.object({
   durationSec: z.number().int().positive(),
 });
 
-export const RedditPostSchema = z.object({
+// 시장 반응 — 분석 영상에 달린 시청자 top 댓글
+export const CommentSchema = z.object({
   ticker: z.string(),
-  subreddit: z.string(),
-  title: z.string(),
-  score: z.number().int(),
-  excerpt: z.string().max(280),
-  url: z.string(),
-  createdAt: z.string(), // ISO 8601
+  source: z.literal('youtube'), // 향후 다른 소스 추가 대비
+  channel: z.string(),          // 영상 채널명
+  videoTitle: z.string(),       // 출처 영상 제목 (참고용)
+  videoId: z.string(),          // 출처 영상 ID
+  author: z.string(),           // 댓글 작성자 (표시용)
+  text: z.string().max(500),    // 댓글 본문 (긴 댓글은 잘림)
+  likeCount: z.number().int().nonnegative(),
+  publishedAt: z.string(),      // ISO 8601
 });
 
 export const EnrichedHoldingSchema = HoldingWithDataSchema.extend({
   insight: InsightSchema,
   videos: z.array(YouTubeVideoSchema),
-  reactions: z.array(RedditPostSchema),
+  reactions: z.array(CommentSchema),
 });
 
 export const DailyDataSchema = z.object({
@@ -80,5 +83,5 @@ export type HoldingWithData = z.infer<typeof HoldingWithDataSchema>;
 export type DailyData = z.infer<typeof DailyDataSchema>;
 export type Insight = z.infer<typeof InsightSchema>;
 export type YouTubeVideo = z.infer<typeof YouTubeVideoSchema>;
-export type RedditPost = z.infer<typeof RedditPostSchema>;
+export type Comment = z.infer<typeof CommentSchema>;
 export type EnrichedHolding = z.infer<typeof EnrichedHoldingSchema>;

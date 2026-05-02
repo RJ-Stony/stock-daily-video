@@ -1,13 +1,13 @@
 import { useCurrentFrame, interpolate } from 'remotion';
 import { colors, type, space, radius } from '../styles/tokens';
-import type { RedditPost } from '../types';
+import type { Comment } from '../types';
 
 interface Props {
-  post: RedditPost;
+  comment: Comment;
   delay: number;
 }
 
-export const RedditQuote: React.FC<Props> = ({ post, delay }) => {
+export const CommentCard: React.FC<Props> = ({ comment, delay }) => {
   const frame = useCurrentFrame();
   const opacity = interpolate(frame, [delay, delay + 10], [0, 1], { extrapolateRight: 'clamp' });
   const tx = interpolate(frame, [delay, delay + 10], [-20, 0], { extrapolateRight: 'clamp' });
@@ -27,9 +27,9 @@ export const RedditQuote: React.FC<Props> = ({ post, delay }) => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: space.sm }}>
-        <span style={{ ...type.captionStrong, color: colors.primaryOnDark }}>r/{post.subreddit}</span>
+        <span style={{ ...type.captionStrong, color: colors.primaryOnDark }}>📺 {comment.channel}</span>
         <span style={{ ...type.caption, color: colors.bodyMuted }}>·</span>
-        <span style={{ ...type.caption, color: colors.bodyMuted }}>↑ {post.score.toLocaleString()}</span>
+        <span style={{ ...type.caption, color: colors.bodyMuted }}>❤️ {comment.likeCount.toLocaleString()}</span>
       </div>
       <div
         style={{
@@ -41,22 +41,8 @@ export const RedditQuote: React.FC<Props> = ({ post, delay }) => {
           overflow: 'hidden',
         }}
       >
-        {post.title}
+        {comment.text}
       </div>
-      {post.excerpt && (
-        <div
-          style={{
-            ...type.caption,
-            color: colors.bodyMuted,
-            display: '-webkit-box',
-            WebkitBoxOrient: 'vertical',
-            WebkitLineClamp: 2,
-            overflow: 'hidden',
-          }}
-        >
-          {post.excerpt}
-        </div>
-      )}
     </div>
   );
 };

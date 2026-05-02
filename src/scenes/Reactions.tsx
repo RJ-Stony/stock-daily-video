@@ -1,6 +1,6 @@
 import { AbsoluteFill, useCurrentFrame, interpolate } from 'remotion';
 import { colors, type, space } from '../styles/tokens';
-import { RedditQuote } from '../components/RedditQuote';
+import { CommentCard } from '../components/CommentCard';
 import type { EnrichedHolding } from '../types';
 
 export const Reactions: React.FC<{ holding: EnrichedHolding }> = ({ holding }) => {
@@ -40,7 +40,7 @@ export const Reactions: React.FC<{ holding: EnrichedHolding }> = ({ holding }) =
       ) : (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: space.md, justifyContent: 'center' }}>
           {items.map((p, i) => (
-            <RedditQuote key={p.url} post={p} delay={5 + i * 6} />
+            <CommentCard key={`${p.videoId}-${i}`} comment={p} delay={5 + i * 6} />
           ))}
         </div>
       )}
