@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { fetchActiveHoldings } from './fetch-notion';
 import { fetchPrices } from './fetch-prices';
 import { fetchNewsBatch } from './fetch-news';
-import { fetchInsightBatch, translateReactionsBatch } from './fetch-gemma-insight';
+import { fetchInsightBatch, translateReactionsBatch, translateNewsBatch } from './fetch-gemma-insight';
 import { fetchYouTubeBatch } from './fetch-youtube';
 import { fetchCommentsBatch } from './fetch-comments';
 import { renderDaily } from './render';
@@ -59,11 +59,19 @@ async function main(): Promise<void> {
     const symbols = holdings.map(h => h.yahooSymbol);
 
     console.time('[run] prices+news');
-    const [prices, newsByYahooSymbol] = await Promise.all([
+    const [prices, rawNewsByYahooSymbol] = await Promise.all([
       fetchPrices(symbols),
       fetchNewsBatch(holdings),
     ]);
     console.timeEnd('[run] prices+news');
+
+    // 종목 단위 라벨 ("엔비디아 (NVDA)") — 번역 프롬프트 컨텍스트용
+    const holdingLabelByYahooSymbol: Record<string, string> = {};
+    for (const h of holdings) holdingLabelByYahooSymbol[h.yahooSymbol] = `${h.name} (${h.ticker})`;
+
+    console.time('[run] translate-news');
+    const newsByYahooSymbol = await translateNewsBatch(rawNewsByYahooSymbol, holdingLabelByYahooSymbol);
+    console.timeEnd('[run] translate-news');
 
     // 1차 merge — HoldingWithData 만들기 (insight/videos/reactions는 다음 단계)
     const holdingsWithData = holdings.map(h => ({
@@ -90,7 +98,7 @@ async function main(): Promise<void> {
     console.timeEnd('[run] enrich-comments');
 
     console.time('[run] translate-reactions');
-    const translatedReactions = await translateReactionsBatch(reactions);
+    const translatedReactions = await translateReactionsBatch(reactions, holdingLabelByYahooSymbol);
     console.timeEnd('[run] translate-reactions');
 
     enrichedHoldings = holdingsWithData.map(h => ({

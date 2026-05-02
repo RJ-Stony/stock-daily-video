@@ -17,12 +17,17 @@ export async function fetchNews(holding: Holding): Promise<NewsItem[]> {
   const symbol = holding.yahooSymbol;
   const isKR = holding.market === 'KR';
 
+  // UFO·MOON 등 일반어 티커는 그냥 검색하면 주식이 아닌 결과가 섞여 들어옴.
+  // 한국어는 "주가", 영어는 "stock" 컨텍스트를 항상 붙여 disambiguate.
+  const koQuery = `${holding.name} 주가`;
+  const enQuery = `${holding.ticker} stock`;
+
   // 한국 종목: 한국어 검색만 / 미국 종목: 한국어 + 영어 둘 다
   const queries: Array<{ q: string; locale: 'ko' | 'en' }> = isKR
-    ? [{ q: holding.name, locale: 'ko' }]
+    ? [{ q: koQuery, locale: 'ko' }]
     : [
-        { q: holding.name, locale: 'ko' },
-        { q: holding.ticker, locale: 'en' },
+        { q: koQuery, locale: 'ko' },
+        { q: enQuery, locale: 'en' },
       ];
 
   const tasks: Array<Promise<NewsItem[]>> = [

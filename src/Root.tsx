@@ -250,8 +250,8 @@ export const Root: React.FC = () => (
     height={1080}
     defaultProps={SAMPLE_DAILY_DATA}
     calculateMetadata={async ({ props }) => ({
-      // intro 90 + (A 60 + B 90 + C 150 + D 60 + E 90) * n + outro 120 = 210 + 450*n
-      durationInFrames: 210 + props.holdings.length * 450,
+      // 모든 장표를 150프레임(5초)으로 고정. intro + (A,B,C,D,E)*n + outro = (5n + 2) * 150
+      durationInFrames: 150 * (props.holdings.length * 5 + 2),
       props,
     })}
   />
