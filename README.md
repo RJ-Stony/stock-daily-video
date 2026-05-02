@@ -31,7 +31,6 @@ pnpm daily                 # 전체 파이프라인 1회 실행
 | `GEMINI_API_KEY` | ✅ | Gemma 4 31B 한국어 인사이트 (Google AI Studio) |
 | `GEMINI_MODEL` | ⏳ | 기본값 `gemma-4-31b-it`. 다른 모델 오버라이드 |
 | `YOUTUBE_API_KEY` | ✅ | YouTube Data API v3 |
-| `REDDIT_USER_AGENT` | ✅ | 형식 `app/version by username` |
 | `KAKAO_REST_KEY` | ✅ | 카카오 앱 REST API 키 |
 | `KAKAO_REFRESH_TOKEN` | ✅ | OAuth refresh token (60일 유효, 메시지 발송 시 자동 갱신) |
 | `R2_ACCOUNT_ID` | ✅ | Cloudflare 계정 ID |
@@ -134,9 +133,9 @@ pnpm daily                 # 전체 파이프라인 1회 실행
 | B — 헤드라인 | 주요 뉴스 3건 | 파치먼트 |
 | C — Why | Gemma 4 31B 한국어 인사이트 (원인 분석) | 다크 |
 | D — 영상 | 관련 YouTube 영상 썸네일 | 라이트 |
-| E — 반응 | Reddit 커뮤니티 반응 상위 3건 | 다크 |
+| E — 반응 | YouTube 영상 시청자 댓글 상위 5건 | 다크 |
 
-**데이터 소스**: Gemma 4 31B (Google AI Studio) / Yahoo + Google News RSS / YouTube Data API v3 / Reddit 공개 API
+**데이터 소스**: Gemma 4 31B (Google AI Studio) / Yahoo + Google News RSS / YouTube Data API v3 (영상 + 댓글)
 
 **캐시**: `out/cache/{date}.json` — 동일 날짜 재실행 시 자동 사용 (fetch 0회, 렌더만 재실행)
 
