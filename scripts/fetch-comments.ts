@@ -17,9 +17,31 @@ interface CommentThreadsResponse {
   }>;
 }
 
+interface ApiErrorResponse {
+  error?: {
+    code?: number;
+    errors?: Array<{ reason?: string }>;
+  };
+}
+
+const QUOTA_REASONS = new Set(['quotaExceeded', 'dailyLimitExceeded', 'rateLimitExceeded']);
+
+function parseQuotaReason(bodyText: string): string | null {
+  try {
+    const json = JSON.parse(bodyText) as ApiErrorResponse;
+    const reason = json.error?.errors?.[0]?.reason;
+    if (reason && QUOTA_REASONS.has(reason)) return reason;
+  } catch { /* not JSON */ }
+  return null;
+}
+
 const PER_VIDEO = 5;
 const PER_HOLDING = 5;
 const MAX_TEXT = 320;
+
+interface QuotaState {
+  exhausted: boolean;
+}
 
 function clean(text: string): string {
   return text
@@ -35,8 +57,11 @@ async function fetchVideoComments(
   apiKey: string,
   ticker: string,
   video: YouTubeVideo,
+  quota: QuotaState,
   count = PER_VIDEO,
 ): Promise<Comment[]> {
+  if (quota.exhausted) return [];
+
   const url = new URL('https://www.googleapis.com/youtube/v3/commentThreads');
   url.searchParams.set('part', 'snippet');
   url.searchParams.set('videoId', video.videoId);
@@ -48,7 +73,15 @@ async function fetchVideoComments(
   try {
     const res = await fetch(url.toString());
     if (!res.ok) {
-      console.warn(`[comments] ${ticker}/${video.videoId} HTTP ${res.status}`);
+      const body = await res.text();
+      const quotaReason = parseQuotaReason(body);
+      if (quotaReason) {
+        console.warn(`[comments] quota 초과 감지 (${quotaReason}) — 이후 모든 댓글 호출 스킵`);
+        quota.exhausted = true;
+      } else {
+        // 댓글 비활성 영상은 403, 비공개 영상은 404 등 — 한 영상 실패는 치명적이지 않음
+        console.warn(`[comments] ${ticker}/${video.videoId} HTTP ${res.status} body=${body.slice(0, 120)}`);
+      }
       return [];
     }
     const json = (await res.json()) as CommentThreadsResponse;
@@ -92,6 +125,8 @@ export async function fetchCommentsBatch(
     return out;
   }
 
+  const quota: QuotaState = { exhausted: false };
+
   for (let i = 0; i < holdings.length; i++) {
     const h = holdings[i];
     const videos = (videosByYahooSymbol[h.yahooSymbol] ?? []).slice(0, 3);
@@ -104,11 +139,20 @@ export async function fetchCommentsBatch(
       continue;
     }
 
+    if (quota.exhausted) {
+      console.log('quota 초과 — 스킵');
+      out[h.yahooSymbol] = [];
+      continue;
+    }
+
     try {
-      const settled = await Promise.allSettled(
-        videos.map(v => fetchVideoComments(apiKey, h.ticker, v, PER_VIDEO)),
-      );
-      const merged: Comment[] = settled.flatMap(r => (r.status === 'fulfilled' ? r.value : []));
+      // 순차 호출 — 첫 영상에서 quota 끊기면 즉시 stop, 같은 종목 다른 영상도 안 부름
+      const merged: Comment[] = [];
+      for (const v of videos) {
+        if (quota.exhausted) break;
+        const got = await fetchVideoComments(apiKey, h.ticker, v, quota, PER_VIDEO);
+        merged.push(...got);
+      }
       merged.sort((a, b) => b.likeCount - a.likeCount);
       const selected = merged.slice(0, PER_HOLDING);
       out[h.yahooSymbol] = selected;
@@ -119,6 +163,10 @@ export async function fetchCommentsBatch(
       console.log(`실패 (${elapsed}s) — ${err instanceof Error ? err.message : err}`);
       out[h.yahooSymbol] = [];
     }
+  }
+
+  if (quota.exhausted) {
+    console.warn('[comments] 일일 quota 초과로 일부/전체 종목의 댓글이 비었습니다.');
   }
 
   return out;
