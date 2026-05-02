@@ -7,7 +7,11 @@ interface YahooChartResponse {
     result: Array<{
       meta: {
         regularMarketPrice?: number;
+        // 차트(range) 시작 직전 종가 — range=1mo면 한 달 전 종가. 일일 변동률 계산엔 부적합.
         chartPreviousClose?: number;
+        // 직전 거래일 종가 — 일일 변동률 계산에 정확한 값.
+        previousClose?: number;
+        regularMarketPreviousClose?: number;
       };
       indicators: {
         quote: Array<{ close: Array<number | null> }>;
@@ -32,8 +36,18 @@ export async function fetchPrice(symbol: string): Promise<PriceData | null> {
       return null;
     }
     const current = result.meta.regularMarketPrice;
-    const previousClose = result.meta.chartPreviousClose;
     const closes = (result.indicators.quote[0]?.close ?? []).filter((v): v is number => typeof v === 'number');
+
+    // 직전 거래일 종가 — 일일 변동률용. 우선순위:
+    // 1) meta.previousClose (가장 정확) 2) meta.regularMarketPreviousClose
+    // 3) closes 배열의 끝에서 두 번째 (오늘 마감가가 마지막일 때)
+    // 4) 그래도 없으면 chartPreviousClose (한 달 누적이지만 fallback)
+    const previousClose =
+      result.meta.previousClose ??
+      result.meta.regularMarketPreviousClose ??
+      (closes.length >= 2 ? closes[closes.length - 2] : undefined) ??
+      result.meta.chartPreviousClose;
+
     if (typeof current !== 'number' || typeof previousClose !== 'number' || closes.length === 0) {
       console.warn(`[fetch-prices] ${symbol} 필드 누락`);
       return null;
