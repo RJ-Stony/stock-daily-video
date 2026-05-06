@@ -101,6 +101,7 @@ export async function sendKakaoMessage(
 
     console.log('[notify-kakao] sent', { date, videoUrl });
   } catch (err) {
-    console.error('[notify-kakao] 실패', err instanceof Error ? err.message : err);
+    const cause = err instanceof Error ? (err as NodeJS.ErrnoException & { cause?: unknown }).cause : undefined;
+    console.error('[notify-kakao] 실패', err instanceof Error ? err.message : err, cause ? cause : '');
   }
 }
