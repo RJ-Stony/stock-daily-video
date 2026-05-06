@@ -7,12 +7,25 @@ import { fetchNewsBatch } from './fetch-news';
 import { fetchInsightBatch, translateReactionsBatch, translateNewsBatch } from './fetch-gemma-insight';
 import { fetchYouTubeBatch } from './fetch-youtube';
 import { fetchCommentsBatch } from './fetch-comments';
+import { fetchRedditBatch } from './fetch-reddit';
 import { renderDaily } from './render';
 import { uploadFile } from './upload';
 import { renderThumbnail } from './render-thumbnail';
 import { sendKakaoMessage } from './notify-kakao';
 import { z } from 'zod';
-import { DailyDataSchema, EnrichedHoldingSchema, type EnrichedHolding, type Insight } from '../src/types';
+import { DailyDataSchema, EnrichedHoldingSchema, type Comment, type EnrichedHolding, type Insight } from '../src/types';
+
+// 서로 다른 출처(YouTube · Reddit)의 반응을 인터리브해 시장 반응 슬라이드의 다양성을 확보.
+function interleave<T>(...arrs: T[][]): T[] {
+  const out: T[] = [];
+  const max = Math.max(0, ...arrs.map(a => a.length));
+  for (let i = 0; i < max; i++) {
+    for (const arr of arrs) {
+      if (arr[i] !== undefined) out.push(arr[i]);
+    }
+  }
+  return out;
+}
 
 function emptyInsight(ticker: string): Insight {
   return { ticker, headline: '', body: '', generatedAt: new Date().toISOString() };
@@ -94,7 +107,18 @@ async function main(): Promise<void> {
     console.timeEnd('[run] enrich-insights+videos');
 
     console.time('[run] enrich-comments');
-    const reactions = await fetchCommentsBatch(holdingsWithData, videos);
+    const [youtubeReactions, redditReactions] = await Promise.all([
+      fetchCommentsBatch(holdingsWithData, videos),
+      fetchRedditBatch(holdingsWithData),
+    ]);
+    // 종목별로 두 소스를 인터리브 — 위쪽엔 YouTube/Reddit이 번갈아 등장하도록 섞는다.
+    // 번역 단계에서 LLM이 관련성 없다고 판단하면 빠지므로, 너무 많이 합치지 말고 각 12개 한도.
+    const reactions: Record<string, Comment[]> = {};
+    for (const h of holdingsWithData) {
+      const yt = (youtubeReactions[h.yahooSymbol] ?? []).slice(0, 6);
+      const rd = (redditReactions[h.yahooSymbol] ?? []).slice(0, 6);
+      reactions[h.yahooSymbol] = interleave(yt, rd);
+    }
     console.timeEnd('[run] enrich-comments');
 
     console.time('[run] translate-reactions');

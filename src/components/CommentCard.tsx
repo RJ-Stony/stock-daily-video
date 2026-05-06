@@ -27,9 +27,13 @@ export const CommentCard: React.FC<Props> = ({ comment, delay }) => {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: space.sm }}>
-        <span style={{ ...type.captionStrong, color: colors.primaryOnDark }}>📺 {comment.channel}</span>
+        <span style={{ ...type.captionStrong, color: colors.primaryOnDark }}>
+          {comment.source === 'reddit' ? '👥' : '📺'} {comment.channel}
+        </span>
         <span style={{ ...type.caption, color: colors.bodyMuted }}>·</span>
-        <span style={{ ...type.caption, color: colors.bodyMuted }}>❤️ {comment.likeCount.toLocaleString()}</span>
+        <span style={{ ...type.caption, color: colors.bodyMuted }}>
+          {comment.source === 'reddit' ? '⬆️' : '❤️'} {comment.likeCount.toLocaleString()}
+        </span>
       </div>
       <div
         style={{

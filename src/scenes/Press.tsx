@@ -8,7 +8,11 @@ export const Press: React.FC<{ holding: EnrichedHolding }> = ({ holding }) => {
   const headerOpacity = interpolate(frame, [0, 10], [0, 1], { extrapolateRight: 'clamp' });
   const headerTy = interpolate(frame, [0, 10], [12, 0], { extrapolateRight: 'clamp' });
 
-  const items = holding.news.slice(0, 4);
+  // description이 있는 항목을 우선 노출 — 제목만 있고 본문이 비는 카드(공백 카드) 방지.
+  // 1차 정렬은 fetch 단계에서 시간 내림차순으로 끝났으므로 stable sort로 우선순위만 추가한다.
+  const items = [...holding.news]
+    .sort((a, b) => (b.description ? 1 : 0) - (a.description ? 1 : 0))
+    .slice(0, 4);
 
   return (
     <AbsoluteFill style={{ backgroundColor: colors.canvasParchment, padding: space.xxl, display: 'flex', flexDirection: 'column' }}>

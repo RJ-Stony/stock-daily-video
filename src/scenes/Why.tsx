@@ -60,12 +60,13 @@ export const Why: React.FC<{ holding: EnrichedHolding }> = ({ holding }) => {
           >
             {holding.insight.headline}
           </div>
-          {/* 본문 — 좌측 액센트 바로 묶고 문장별 분리 */}
+          {/* 본문 — 좌측 액센트 바로 묶고 문장별 분리. 한 문장은 반드시 한 줄에 들어가도록
+              섹션 패딩(80*2=160) 제외 가용폭 1760에 맞춰 maxWidth/fontSize 조정. */}
           <div
             style={{
               borderLeft: `4px solid ${accent}`,
               paddingLeft: space.xl,
-              maxWidth: 1300,
+              maxWidth: 1760,
               display: 'flex',
               flexDirection: 'column',
               gap: space.md,
@@ -82,9 +83,9 @@ export const Why: React.FC<{ holding: EnrichedHolding }> = ({ holding }) => {
                   key={i}
                   style={{
                     ...type.lead,
-                    fontSize: 32,                   // 기본 lead 40 → 32로 축소
+                    fontSize: 28,                   // 70자 한국어 문장이 한 줄에 들어가도록
                     color: colors.bodyOnDark,
-                    lineHeight: 1.5,
+                    lineHeight: 1.4,
                   }}
                 >
                   {line}

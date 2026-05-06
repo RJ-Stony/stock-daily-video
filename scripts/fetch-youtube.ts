@@ -149,6 +149,36 @@ async function fetchVideoDetails(apiKey: string, videoIds: string[], quota: Quot
 
 const MIN_HITS_BEFORE_FALLBACK = 3;
 
+// 종목과 무관한 일반 입문/광고성 영상을 거르는 패턴.
+// 티커가 제목에 정확히 들어 있으면 이 패턴은 무시한다.
+const NOISE_TITLE_PATTERNS: RegExp[] = [
+  /주식\s*(?:처음|기초|입문|사는\s*법|시작하는\s*법|쉽게)/,
+  /(?:투자|재테크)\s*(?:처음|기초|입문)/,
+  /\b(?:beginner|how\s+to\s+invest|stock\s+market\s+basics)\b/i,
+];
+
+// 종목명에서 의미 있는 키워드만 추출 (괄호·숫자·1~2자 토큰 제거).
+function extractNameKeywords(name: string): string[] {
+  return name
+    .replace(/[()]/g, ' ')
+    .split(/\s+/)
+    .map(w => w.trim())
+    .filter(w => w.length >= 2 && !/^\d+$/.test(w));
+}
+
+// 추천 영상 후보를 종목 관련성 기준으로 점수화 (높을수록 관련성 큼).
+//   +3: 제목에 티커 정확 일치
+//   +1: 제목에 종목명 키워드 일치
+//   -3: 일반 입문/광고성 패턴 (위 가산점이 0일 때만 적용)
+function relevanceScore(title: string, ticker: string, nameKeywords: string[]): number {
+  const t = title.toLowerCase();
+  let score = 0;
+  if (t.includes(ticker.toLowerCase())) score += 3;
+  if (nameKeywords.some(w => t.includes(w.toLowerCase()))) score += 1;
+  if (score === 0 && NOISE_TITLE_PATTERNS.some(p => p.test(title))) score -= 3;
+  return score;
+}
+
 export async function fetchYouTubeBatch(
   holdings: HoldingWithData[],
 ): Promise<Record<string, YouTubeVideo[]>> {
@@ -194,25 +224,29 @@ export async function fetchYouTubeBatch(
       const ids = Array.from(hitsByVid.keys());
       const details = await fetchVideoDetails(apiKey, ids, quota);
 
-      // 5~30분 필터 + 첫 3개
-      const filtered: YouTubeVideo[] = [];
+      // 5~30분 필터된 후보 전체를 모은 뒤 관련성 점수로 정렬해 상위 3개를 노출.
+      // 일반 입문/광고성 영상은 음수 점수로 뒤로 밀린다.
+      const nameKeywords = extractNameKeywords(h.name);
+      const candidates: Array<{ video: YouTubeVideo; score: number }> = [];
       for (const hit of hitsByVid.values()) {
         const det = details.get(hit.videoId);
         if (!det || det.durationSec < 300 || det.durationSec > 1800) continue;
-        filtered.push({
-          ticker: h.ticker,
-          videoId: hit.videoId,
-          title: hit.title,
-          channel: hit.channel,
-          thumbnailUrl: hit.thumbnailUrl,
-          publishedAt: hit.publishedAt,
-          viewCount: det.viewCount,
-          durationSec: det.durationSec,
+        candidates.push({
+          score: relevanceScore(hit.title, h.ticker, nameKeywords),
+          video: {
+            ticker: h.ticker,
+            videoId: hit.videoId,
+            title: hit.title,
+            channel: hit.channel,
+            thumbnailUrl: hit.thumbnailUrl,
+            publishedAt: hit.publishedAt,
+            viewCount: det.viewCount,
+            durationSec: det.durationSec,
+          },
         });
-        if (filtered.length >= 3) break;
       }
-
-      out[h.yahooSymbol] = filtered;
+      candidates.sort((a, b) => b.score - a.score);
+      out[h.yahooSymbol] = candidates.slice(0, 3).map(c => c.video);
     } catch (err) {
       console.warn(`[youtube] ${h.ticker} 실패`, err instanceof Error ? err.message : err);
       out[h.yahooSymbol] = [];

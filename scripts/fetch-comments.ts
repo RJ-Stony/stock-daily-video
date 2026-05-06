@@ -146,12 +146,16 @@ export async function fetchCommentsBatch(
     }
 
     try {
-      // 순차 호출 — 첫 영상에서 quota 끊기면 즉시 stop, 같은 종목 다른 영상도 안 부름
+      // 순차 호출 — 첫 영상에서 quota 끊기면 즉시 stop, 같은 종목 다른 영상도 안 부름.
+      // 특정 영상이 댓글을 독점하지 않도록 영상당 채택 한도(perVideoCap)를 둔다.
+      // 영상 수에 따라 동적으로 결정해 PER_HOLDING은 항상 채울 수 있게 한다.
+      const perVideoCap = Math.max(2, Math.ceil(PER_HOLDING / Math.max(1, videos.length)));
       const merged: Comment[] = [];
       for (const v of videos) {
         if (quota.exhausted) break;
         const got = await fetchVideoComments(apiKey, h.ticker, v, quota, PER_VIDEO);
-        merged.push(...got);
+        got.sort((a, b) => b.likeCount - a.likeCount);
+        merged.push(...got.slice(0, perVideoCap));
       }
       merged.sort((a, b) => b.likeCount - a.likeCount);
       const selected = merged.slice(0, PER_HOLDING);

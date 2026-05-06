@@ -156,9 +156,9 @@ interface TranslatedComment {
   relevant?: boolean;
 }
 
-const TRANSLATE_INSTRUCTION = `너는 영문 YouTube 영상 댓글을 한국어로 번역·선별하는 전문가다.
+const TRANSLATE_INSTRUCTION = `너는 영문 커뮤니티 반응(YouTube 댓글, Reddit 게시물 등)을 한국어로 번역·선별하는 전문가다.
 
-먼저 각 댓글이 "해당 종목·해당 영상의 시장 반응"으로 보여줄 가치가 있는지 판정하라.
+먼저 각 항목이 "해당 종목의 시장 반응"으로 보여줄 가치가 있는지 판정하라.
 다음에 해당하면 "relevant": false 로 마크하고 번역 생략 ("text": "" 가능):
 - 채널 홍보 / 구독·좋아요 요청 ("subscribe", "구독", "팔로우 ㄱㄱ", "channel 방문" 등)
 - 본인 채널·블로그·텔레그램·디스코드 링크 또는 그 권유
@@ -201,9 +201,12 @@ const TRANSLATE_INSTRUCTION = `너는 영문 YouTube 영상 댓글을 한국어�
 
 function buildTranslatePrompt(holdingLabel: string, comments: Comment[]): string {
   const lines = comments
-    .map((c, i) => `${i + 1}. [${c.channel}] ${c.text}`)
+    .map((c, i) => {
+      const tag = c.source === 'reddit' ? `Reddit ${c.channel}` : `YouTube ${c.channel}`;
+      return `${i + 1}. [${tag}] ${c.text}`;
+    })
     .join('\n\n');
-  return `종목: ${holdingLabel}\n\n다음 ${comments.length}개 YouTube 영상 댓글을 종목 관련성으로 판정하고, 관련 있는 것만 한국어로 번역하세요.\n\n${lines}\n\nJSON 배열만 출력 (입력 순서 그대로 ${comments.length}개).`;
+  return `종목: ${holdingLabel}\n\n다음 ${comments.length}개 커뮤니티 반응(댓글/포스트)을 종목 관련성으로 판정하고, 관련 있는 것만 한국어로 번역하세요.\n\n${lines}\n\nJSON 배열만 출력 (입력 순서 그대로 ${comments.length}개).`;
 }
 
 function extractTranslatedComments(text: string): TranslatedComment[] | null {
@@ -295,7 +298,8 @@ export async function translateReactionsBatch(
             parts: [{ text: `${TRANSLATE_INSTRUCTION}\n\n---\n\n${buildTranslatePrompt(label, preFiltered)}` }],
           },
         ],
-        config: { temperature: 0.3, maxOutputTokens: 1200 },
+        // YouTube + Reddit 합쳐 최대 12건까지 한 번에 들어올 수 있어 출력 한도 상향.
+        config: { temperature: 0.3, maxOutputTokens: 1800 },
       });
       const text = result.text ?? '';
       const translated = extractTranslatedComments(text);
