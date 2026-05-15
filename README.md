@@ -31,6 +31,8 @@ pnpm daily                 # 전체 파이프라인 1회 실행
 | `GEMINI_API_KEY` | ✅ | Gemma 4 31B 한국어 인사이트 (Google AI Studio) |
 | `GEMINI_MODEL` | ⏳ | 기본값 `gemma-4-31b-it`. 다른 모델 오버라이드 |
 | `YOUTUBE_API_KEY` | ✅ | YouTube Data API v3 |
+| `REDDIT_CLIENT_ID` | ⏳ | Reddit OAuth client id (script app). 미설정 시 Reddit 반응 수집 스킵 |
+| `REDDIT_CLIENT_SECRET` | ⏳ | Reddit OAuth client secret. ID와 함께 설정해야 동작 |
 | `KAKAO_REST_KEY` | ✅ | 카카오 앱 REST API 키 |
 | `KAKAO_REFRESH_TOKEN` | ✅ | OAuth refresh token (60일 유효, 메시지 발송 시 자동 갱신) |
 | `R2_ACCOUNT_ID` | ✅ | Cloudflare 계정 ID |

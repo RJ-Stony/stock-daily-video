@@ -166,6 +166,21 @@ function extractNameKeywords(name: string): string[] {
     .filter(w => w.length >= 2 && !/^\d+$/.test(w));
 }
 
+// 한국 ETF 운용사 prefix (KODEX, TIGER, 1Q, ACE 등). fallback 검색에서 제거해
+// 핵심 테마 키워드만 남긴다.
+const KR_ETF_BRAND_PATTERN = /^(KODEX|TIGER|SOL|1Q|ACE|KOSEF|RISE|HANARO|KBSTAR|ARIRANG|PLUS|TIMEFOLIO|TREX)\s+/i;
+
+// 1차 검색 결과가 부족할 때 쓰는 fallback 쿼리.
+// US: 영문 ticker 기반. KR: 운용사 prefix 떼고 "<테마> ETF" 검색.
+function buildFallbackQuery(h: HoldingWithData): string | null {
+  if (h.market === 'KR') {
+    const cleaned = h.name.replace(KR_ETF_BRAND_PATTERN, '').trim();
+    const keyword = cleaned && cleaned !== h.name ? cleaned : h.name;
+    return `${keyword} ETF`;
+  }
+  return `${h.ticker} stock analysis`;
+}
+
 // 추천 영상 후보를 종목 관련성 기준으로 점수화 (높을수록 관련성 큼).
 //   +3: 제목에 티커 정확 일치
 //   +1: 제목에 종목명 키워드 일치
@@ -201,10 +216,10 @@ export async function fetchYouTubeBatch(
     }
 
     try {
-      // quota 절감 전략: 한국어 검색을 먼저 돌리고, 결과가 충분하면 영어 fallback 생략.
+      // quota 절감 전략: 한국어 검색을 먼저 돌리고, 결과가 충분하면 fallback 생략.
       // search.list = 100 units → 한 종목당 1번만 호출하면 일일 100종목 처리 가능.
       const primaryQuery = `${h.name} 주가 분석`;
-      const fallbackQuery = h.market === 'KR' ? null : `${h.ticker} stock analysis`;
+      const fallbackQuery = buildFallbackQuery(h);
 
       const hitsByVid = new Map<string, SearchHit>();
       const primaryHits = await searchOnce(apiKey, primaryQuery, publishedAfter, quota);
