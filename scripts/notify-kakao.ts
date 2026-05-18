@@ -67,41 +67,56 @@ export async function sendKakaoMessage(
     return;
   }
 
-  try {
-    const accessToken = await refreshAccessToken(restKey, refreshToken);
+  const RETRY_DELAY_MS = 30_000;
+  const CERT_NOT_YET_VALID = 'CERT_NOT_YET_VALID';
 
-    const template = {
-      object_type: 'feed',
-      content: {
-        title: `${date} 일일 시황`,
-        description: summary,
-        image_url: thumbnailUrl,
-        link: { web_url: videoUrl, mobile_web_url: videoUrl },
-      },
-      buttons: [
-        { title: '영상 보기', link: { web_url: videoUrl, mobile_web_url: videoUrl } },
-      ],
-    };
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const accessToken = await refreshAccessToken(restKey, refreshToken);
 
-    const body = new URLSearchParams({ template_object: JSON.stringify(template) });
+      const template = {
+        object_type: 'feed',
+        content: {
+          title: `${date} 일일 시황`,
+          description: summary,
+          image_url: thumbnailUrl,
+          link: { web_url: videoUrl, mobile_web_url: videoUrl },
+        },
+        buttons: [
+          { title: '영상 보기', link: { web_url: videoUrl, mobile_web_url: videoUrl } },
+        ],
+      };
 
-    const res = await fetch('https://kapi.kakao.com/v2/api/talk/memo/default/send', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body,
-    });
+      const body = new URLSearchParams({ template_object: JSON.stringify(template) });
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`[notify-kakao] 발송 실패 ${res.status}: ${text}`);
+      const res = await fetch('https://kapi.kakao.com/v2/api/talk/memo/default/send', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body,
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`[notify-kakao] 발송 실패 ${res.status}: ${text}`);
+      }
+
+      console.log('[notify-kakao] sent', { date, videoUrl });
+      return;
+    } catch (err) {
+      const code = err instanceof Error ? (err as NodeJS.ErrnoException & { cause?: NodeJS.ErrnoException }).cause?.code : undefined;
+      const isCertNotYetValid = code === CERT_NOT_YET_VALID;
+
+      if (isCertNotYetValid && attempt === 1) {
+        console.warn(`[notify-kakao] ${CERT_NOT_YET_VALID} — ${RETRY_DELAY_MS / 1000}초 후 재시도`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+        continue;
+      }
+
+      const cause = err instanceof Error ? (err as NodeJS.ErrnoException & { cause?: unknown }).cause : undefined;
+      console.error('[notify-kakao] 실패', err instanceof Error ? err.message : err, cause ? cause : '');
     }
-
-    console.log('[notify-kakao] sent', { date, videoUrl });
-  } catch (err) {
-    const cause = err instanceof Error ? (err as NodeJS.ErrnoException & { cause?: unknown }).cause : undefined;
-    console.error('[notify-kakao] 실패', err instanceof Error ? err.message : err, cause ? cause : '');
   }
 }
