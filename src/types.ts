@@ -52,17 +52,16 @@ export const YouTubeVideoSchema = z.object({
   durationSec: z.number().int().positive(),
 });
 
-// 시장 반응 — YouTube 영상 댓글 + Reddit 인기 포스트 등 다중 소스 지원
+// 시장 반응 — YouTube 영상 댓글 + StockTwits 포스트 등 다중 소스 지원
 export const CommentSchema = z.object({
   ticker: z.string(),
-  source: z.enum(['youtube', 'reddit']),
-  channel: z.string(),                       // YouTube 채널명 또는 "r/<subreddit>"
+  source: z.enum(['youtube', 'stocktwits']),
+  channel: z.string(),                       // YouTube 채널명 또는 "StockTwits"
   videoTitle: z.string().optional(),         // YouTube 전용
   videoId: z.string().optional(),            // YouTube 전용
-  permalink: z.string().optional(),          // Reddit 전용 (게시물 경로)
   author: z.string(),                        // 댓글/포스트 작성자
   text: z.string().max(500),                 // 본문 (길면 잘림)
-  likeCount: z.number().int().nonnegative(), // YouTube likeCount 또는 Reddit score
+  likeCount: z.number().int().nonnegative(), // YouTube likeCount 또는 StockTwits likes
   publishedAt: z.string(),                   // ISO 8601
 });
 

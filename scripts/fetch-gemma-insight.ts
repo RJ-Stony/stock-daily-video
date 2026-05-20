@@ -202,7 +202,7 @@ const TRANSLATE_INSTRUCTION = `너는 영문 커뮤니티 반응(YouTube 댓글,
 function buildTranslatePrompt(holdingLabel: string, comments: Comment[]): string {
   const lines = comments
     .map((c, i) => {
-      const tag = c.source === 'reddit' ? `Reddit ${c.channel}` : `YouTube ${c.channel}`;
+      const tag = c.source === 'stocktwits' ? 'StockTwits' : `YouTube ${c.channel}`;
       return `${i + 1}. [${tag}] ${c.text}`;
     })
     .join('\n\n');
