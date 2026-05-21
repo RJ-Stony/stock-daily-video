@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.658.0",
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/noto-sans-kr": "^5.2.9",
     "@google/genai": "^1.0.0",
     "@notionhq/client": "^2.2.15",
     "@remotion/bundler": "^4.0.0",

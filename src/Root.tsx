@@ -1,15 +1,9 @@
 import { Composition } from 'remotion';
-import { loadFont as loadInter } from '@remotion/google-fonts/Inter';
-import { loadFont as loadNotoSansKR } from '@remotion/google-fonts/NotoSansKR';
+import { loadLocalFonts } from './fonts';
 import { Daily } from './Daily';
 import type { DailyData } from './types';
 
-loadInter('normal', { weights: ['300', '400', '600', '700'], subsets: ['latin'] });
-// Noto Sans KR은 폰트 자체가 한국어 전용이라 subsets 옵션 생략 (명시하면 매칭 실패)
-loadNotoSansKR('normal', {
-  weights: ['400', '500', '700'],
-  ignoreTooManyRequestsWarning: true,
-});
+loadLocalFonts();
 
 const SAMPLE_DAILY_DATA: DailyData = {
   date: '2026-05-01',
