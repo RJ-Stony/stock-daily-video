@@ -4,6 +4,33 @@ import type { HoldingWithData, Insight, Comment, NewsItem } from '../src/types';
 
 const DEFAULT_MODEL = 'gemma-4-31b-it';
 
+// Gemma/Gemini는 INTERNAL(500)·UNAVAILABLE(503)·RESOURCE_EXHAUSTED(429)이 산발적으로 떠
+// "한 번 실패 → 종목 누락"이 잦다. 일시 오류로 판단되면 지수 백오프 + jitter로 재시도.
+const RETRY_PATTERN = /\b(?:429|500|503|504|UNAVAILABLE|INTERNAL|DEADLINE_EXCEEDED|RESOURCE_EXHAUSTED)\b/;
+
+function isRetryableGenAIError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  return RETRY_PATTERN.test(msg);
+}
+
+async function callGenAIWithRetry<T>(fn: () => Promise<T>, maxAttempts = 4): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === maxAttempts || !isRetryableGenAIError(err)) throw err;
+      // 2s → 5s → 11s (지터 0~500ms)
+      const delayMs = 2000 * 2 ** (attempt - 1) + Math.floor(Math.random() * 500);
+      process.stdout.write(`재시도#${attempt}(${(delayMs / 1000).toFixed(1)}s) `);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastErr;
+}
+
 const SYSTEM_INSTRUCTION = `너는 한국 일반 투자자에게 종목 변동을 쉽게 설명하는 전문 분석가다.
 
 말투 규칙:
@@ -115,7 +142,7 @@ export async function fetchInsightBatch(
     process.stdout.write(`[gemma] (${i + 1}/${holdings.length}) ${h.ticker} 호출 중... `);
     const t0 = Date.now();
     try {
-      const result = await ai.models.generateContent({
+      const result = await callGenAIWithRetry(() => ai.models.generateContent({
         model,
         contents: [
           {
@@ -124,7 +151,7 @@ export async function fetchInsightBatch(
           },
         ],
         config: { temperature: 0.3, maxOutputTokens: 600 },
-      });
+      }));
 
       const text = result.text ?? '';
       const parsed = extractJson(text);
@@ -290,7 +317,7 @@ export async function translateReactionsBatch(
     process.stdout.write(`[gemma/translate] (${i + 1}/${entries.length}) ${symbol} (${preFiltered.length}건) 번역·선별 중... `);
     const t0 = Date.now();
     try {
-      const result = await ai.models.generateContent({
+      const result = await callGenAIWithRetry(() => ai.models.generateContent({
         model,
         contents: [
           {
@@ -300,7 +327,7 @@ export async function translateReactionsBatch(
         ],
         // YouTube + Reddit 합쳐 최대 12건까지 한 번에 들어올 수 있어 출력 한도 상향.
         config: { temperature: 0.3, maxOutputTokens: 1800 },
-      });
+      }));
       const text = result.text ?? '';
       const translated = extractTranslatedComments(text);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
@@ -434,7 +461,7 @@ export async function translateNewsBatch(
     process.stdout.write(`[gemma/translate-news] (${i + 1}/${entries.length}) ${symbol} (${target.length}건) 번역 중... `);
     const t0 = Date.now();
     try {
-      const result = await ai.models.generateContent({
+      const result = await callGenAIWithRetry(() => ai.models.generateContent({
         model,
         contents: [
           {
@@ -443,7 +470,7 @@ export async function translateNewsBatch(
           },
         ],
         config: { temperature: 0.3, maxOutputTokens: 1500 },
-      });
+      }));
       const text = result.text ?? '';
       const translated = extractTranslatedNews(text);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
