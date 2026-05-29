@@ -4,6 +4,33 @@ import type { HoldingWithData, Insight, Comment, NewsItem } from '../src/types';
 
 const DEFAULT_MODEL = 'gemma-4-31b-it';
 
+// Gemma API 는 503(UNAVAILABLE) / 500(INTERNAL) / 429(RESOURCE_EXHAUSTED) 가 잦다.
+// SDK 가 던지는 error.message 안에 응답 JSON이 그대로 들어 있어 코드/상태 문자열을 매칭한다.
+function isRetryableGemmaError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/"code"\s*:\s*(429|500|502|503|504)/.test(msg)) return true;
+  if (/UNAVAILABLE|INTERNAL|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED/.test(msg)) return true;
+  return false;
+}
+
+// 일시적 5xx/429 는 2s→5s→11s 로 최대 3회 재시도해 단발성 오류로 인사이트·번역이
+// 통째로 폐기(영어 원문 폴백)되는 것을 막는다.
+async function callGemmaWithRetry<T>(fn: () => Promise<T>): Promise<T> {
+  const delays = [2000, 5000, 11000];
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt === delays.length || !isRetryableGemmaError(err)) throw err;
+      const wait = delays[attempt];
+      process.stdout.write(`재시도 ${attempt + 1}/${delays.length}(${wait / 1000}s 대기)... `);
+      await new Promise(r => setTimeout(r, wait));
+    }
+  }
+  // 도달 불가
+  throw new Error('callGemmaWithRetry: unreachable');
+}
+
 const SYSTEM_INSTRUCTION = `너는 한국 일반 투자자에게 종목 변동을 쉽게 설명하는 전문 분석가다.
 
 말투 규칙:
@@ -115,7 +142,7 @@ export async function fetchInsightBatch(
     process.stdout.write(`[gemma] (${i + 1}/${holdings.length}) ${h.ticker} 호출 중... `);
     const t0 = Date.now();
     try {
-      const result = await ai.models.generateContent({
+      const result = await callGemmaWithRetry(() => ai.models.generateContent({
         model,
         contents: [
           {
@@ -124,7 +151,7 @@ export async function fetchInsightBatch(
           },
         ],
         config: { temperature: 0.3, maxOutputTokens: 600 },
-      });
+      }));
 
       const text = result.text ?? '';
       const parsed = extractJson(text);
@@ -293,7 +320,7 @@ export async function translateReactionsBatch(
     process.stdout.write(`[gemma/translate] (${i + 1}/${entries.length}) ${symbol} (${preFiltered.length}건) 번역·선별 중... `);
     const t0 = Date.now();
     try {
-      const result = await ai.models.generateContent({
+      const result = await callGemmaWithRetry(() => ai.models.generateContent({
         model,
         contents: [
           {
@@ -303,7 +330,7 @@ export async function translateReactionsBatch(
         ],
         // YouTube + StockTwits 합쳐 최대 12건까지 한 번에 들어올 수 있어 출력 한도 상향.
         config: { temperature: 0.3, maxOutputTokens: 1800 },
-      });
+      }));
       const text = result.text ?? '';
       const translated = extractTranslatedComments(text);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
@@ -441,7 +468,7 @@ export async function translateNewsBatch(
     process.stdout.write(`[gemma/translate-news] (${i + 1}/${entries.length}) ${symbol} (${target.length}건) 번역 중... `);
     const t0 = Date.now();
     try {
-      const result = await ai.models.generateContent({
+      const result = await callGemmaWithRetry(() => ai.models.generateContent({
         model,
         contents: [
           {
@@ -450,7 +477,7 @@ export async function translateNewsBatch(
           },
         ],
         config: { temperature: 0.3, maxOutputTokens: 1500 },
-      });
+      }));
       const text = result.text ?? '';
       const translated = extractTranslatedNews(text);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
