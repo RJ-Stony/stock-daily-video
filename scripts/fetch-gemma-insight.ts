@@ -430,8 +430,12 @@ export async function translateNewsBatch(
       continue;
     }
     // Press 슬라이드는 4개만 노출하므로 비용 절감을 위해 상위 6개만 번역.
-    const target = items.slice(0, 6);
-    const rest = items.slice(6);
+    // 단, Press.tsx 와 동일한 우선순위(요약 있는 항목 우선, 그 안에서는 fetch 시간 내림차순 유지)로
+    // 먼저 정렬한 뒤 상위 6개를 고른다. 이렇게 하지 않으면 화면에 노출되는(요약 있는) 항목이
+    // 번역 대상 6개 밖(영어 원문)에 남아 영어로 보이는 문제가 생긴다.
+    const ordered = [...items].sort((a, b) => (b.description ? 1 : 0) - (a.description ? 1 : 0));
+    const target = ordered.slice(0, 6);
+    const rest = ordered.slice(6);
 
     const label = holdingLabelByYahooSymbol[symbol] ?? symbol;
     process.stdout.write(`[gemma/translate-news] (${i + 1}/${entries.length}) ${symbol} (${target.length}건) 번역 중... `);
