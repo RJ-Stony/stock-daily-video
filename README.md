@@ -133,9 +133,11 @@ pnpm daily                 # 전체 파이프라인 1회 실행
 | B — 헤드라인 | 주요 뉴스 3건 | 파치먼트 |
 | C — Why | Gemma 4 31B 한국어 인사이트 (원인 분석) | 다크 |
 | D — 영상 | 관련 YouTube 영상 썸네일 | 라이트 |
-| E — 반응 | YouTube 영상 시청자 댓글 상위 5건 | 다크 |
+| E — 반응 | YouTube 댓글 + StockTwits 인기 메시지 상위 5건 | 다크 |
 
-**데이터 소스**: Gemma 4 31B (Google AI Studio) / Yahoo + Google News RSS / YouTube Data API v3 (영상 + 댓글)
+**데이터 소스**: Gemma 4 31B (Google AI Studio) / Yahoo + Google News RSS / YouTube Data API v3 (영상 + 댓글) / StockTwits 공개 스트림(미국 종목 시장 반응, 무인증)
+
+> 시장 반응(씬 E)은 미국 종목의 경우 YouTube 댓글과 StockTwits 메시지를 인터리브해 다양성을 확보합니다. 과거에 쓰던 Reddit 무인증 `.json` 엔드포인트가 HTTP 403으로 막혀(이슈 #4) StockTwits로 교체했습니다. 별도 시크릿이 필요 없습니다.
 
 **캐시**: `out/cache/{date}.json` — 동일 날짜 재실행 시 자동 사용 (fetch 0회, 렌더만 재실행)
 

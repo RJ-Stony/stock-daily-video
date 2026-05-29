@@ -7,6 +7,18 @@ interface Props {
   delay: number;
 }
 
+// 소스별 배지 아이콘 — 시장 반응 출처를 한눈에 구분.
+const SOURCE_ICON: Record<Comment['source'], string> = {
+  youtube: '📺',
+  reddit: '👥',
+  stocktwits: '💬',
+};
+const LIKE_ICON: Record<Comment['source'], string> = {
+  youtube: '❤️',
+  reddit: '⬆️',
+  stocktwits: '👥', // StockTwits는 좋아요 대신 작성자 팔로워 수를 노출
+};
+
 export const CommentCard: React.FC<Props> = ({ comment, delay }) => {
   const frame = useCurrentFrame();
   const opacity = interpolate(frame, [delay, delay + 10], [0, 1], { extrapolateRight: 'clamp' });
@@ -28,11 +40,11 @@ export const CommentCard: React.FC<Props> = ({ comment, delay }) => {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: space.sm }}>
         <span style={{ ...type.captionStrong, color: colors.primaryOnDark }}>
-          {comment.source === 'reddit' ? '👥' : '📺'} {comment.channel}
+          {SOURCE_ICON[comment.source]} {comment.channel}
         </span>
         <span style={{ ...type.caption, color: colors.bodyMuted }}>·</span>
         <span style={{ ...type.caption, color: colors.bodyMuted }}>
-          {comment.source === 'reddit' ? '⬆️' : '❤️'} {comment.likeCount.toLocaleString()}
+          {LIKE_ICON[comment.source]} {comment.likeCount.toLocaleString()}
         </span>
       </div>
       <div

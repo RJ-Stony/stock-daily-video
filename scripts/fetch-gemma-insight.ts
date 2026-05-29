@@ -156,7 +156,7 @@ interface TranslatedComment {
   relevant?: boolean;
 }
 
-const TRANSLATE_INSTRUCTION = `너는 영문 커뮤니티 반응(YouTube 댓글, Reddit 게시물 등)을 한국어로 번역·선별하는 전문가다.
+const TRANSLATE_INSTRUCTION = `너는 영문 커뮤니티 반응(YouTube 댓글, StockTwits 게시물 등)을 한국어로 번역·선별하는 전문가다.
 
 먼저 각 항목이 "해당 종목의 시장 반응"으로 보여줄 가치가 있는지 판정하라.
 다음에 해당하면 "relevant": false 로 마크하고 번역 생략 ("text": "" 가능):
@@ -202,7 +202,10 @@ const TRANSLATE_INSTRUCTION = `너는 영문 커뮤니티 반응(YouTube 댓글,
 function buildTranslatePrompt(holdingLabel: string, comments: Comment[]): string {
   const lines = comments
     .map((c, i) => {
-      const tag = c.source === 'reddit' ? `Reddit ${c.channel}` : `YouTube ${c.channel}`;
+      const tag =
+        c.source === 'stocktwits' ? `StockTwits ${c.channel}` :
+        c.source === 'reddit' ? `Reddit ${c.channel}` :
+        `YouTube ${c.channel}`;
       return `${i + 1}. [${tag}] ${c.text}`;
     })
     .join('\n\n');
@@ -298,7 +301,7 @@ export async function translateReactionsBatch(
             parts: [{ text: `${TRANSLATE_INSTRUCTION}\n\n---\n\n${buildTranslatePrompt(label, preFiltered)}` }],
           },
         ],
-        // YouTube + Reddit 합쳐 최대 12건까지 한 번에 들어올 수 있어 출력 한도 상향.
+        // YouTube + StockTwits 합쳐 최대 12건까지 한 번에 들어올 수 있어 출력 한도 상향.
         config: { temperature: 0.3, maxOutputTokens: 1800 },
       });
       const text = result.text ?? '';
