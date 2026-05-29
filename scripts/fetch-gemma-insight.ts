@@ -4,6 +4,33 @@ import type { HoldingWithData, Insight, Comment, NewsItem } from '../src/types';
 
 const DEFAULT_MODEL = 'gemma-4-31b-it';
 
+// Gemma API 는 503(UNAVAILABLE) / 500(INTERNAL) / 429(RESOURCE_EXHAUSTED) 가 잦다.
+// SDK 가 던지는 error.message 안에 응답 JSON이 그대로 들어 있어 코드/상태 문자열을 매칭한다.
+function isRetryableGemmaError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/"code"\s*:\s*(429|500|502|503|504)/.test(msg)) return true;
+  if (/UNAVAILABLE|INTERNAL|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED/.test(msg)) return true;
+  return false;
+}
+
+// 일시적 5xx/429 는 2s→5s→11s 로 최대 3회 재시도해 단발성 오류로 인사이트·번역이
+// 통째로 폐기(영어 원문 폴백)되는 것을 막는다.
+async function callGemmaWithRetry<T>(fn: () => Promise<T>): Promise<T> {
+  const delays = [2000, 5000, 11000];
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (attempt === delays.length || !isRetryableGemmaError(err)) throw err;
+      const wait = delays[attempt];
+      process.stdout.write(`재시도 ${attempt + 1}/${delays.length}(${wait / 1000}s 대기)... `);
+      await new Promise(r => setTimeout(r, wait));
+    }
+  }
+  // 도달 불가
+  throw new Error('callGemmaWithRetry: unreachable');
+}
+
 const SYSTEM_INSTRUCTION = `너는 한국 일반 투자자에게 종목 변동을 쉽게 설명하는 전문 분석가다.
 
 말투 규칙:
@@ -115,7 +142,7 @@ export async function fetchInsightBatch(
     process.stdout.write(`[gemma] (${i + 1}/${holdings.length}) ${h.ticker} 호출 중... `);
     const t0 = Date.now();
     try {
-      const result = await ai.models.generateContent({
+      const result = await callGemmaWithRetry(() => ai.models.generateContent({
         model,
         contents: [
           {
@@ -124,7 +151,7 @@ export async function fetchInsightBatch(
           },
         ],
         config: { temperature: 0.3, maxOutputTokens: 600 },
-      });
+      }));
 
       const text = result.text ?? '';
       const parsed = extractJson(text);
@@ -156,7 +183,7 @@ interface TranslatedComment {
   relevant?: boolean;
 }
 
-const TRANSLATE_INSTRUCTION = `너는 영문 커뮤니티 반응(YouTube 댓글, Reddit 게시물 등)을 한국어로 번역·선별하는 전문가다.
+const TRANSLATE_INSTRUCTION = `너는 영문 커뮤니티 반응(YouTube 댓글, StockTwits 게시물 등)을 한국어로 번역·선별하는 전문가다.
 
 먼저 각 항목이 "해당 종목의 시장 반응"으로 보여줄 가치가 있는지 판정하라.
 다음에 해당하면 "relevant": false 로 마크하고 번역 생략 ("text": "" 가능):
@@ -202,7 +229,10 @@ const TRANSLATE_INSTRUCTION = `너는 영문 커뮤니티 반응(YouTube 댓글,
 function buildTranslatePrompt(holdingLabel: string, comments: Comment[]): string {
   const lines = comments
     .map((c, i) => {
-      const tag = c.source === 'reddit' ? `Reddit ${c.channel}` : `YouTube ${c.channel}`;
+      const tag =
+        c.source === 'stocktwits' ? `StockTwits ${c.channel}` :
+        c.source === 'reddit' ? `Reddit ${c.channel}` :
+        `YouTube ${c.channel}`;
       return `${i + 1}. [${tag}] ${c.text}`;
     })
     .join('\n\n');
@@ -290,7 +320,7 @@ export async function translateReactionsBatch(
     process.stdout.write(`[gemma/translate] (${i + 1}/${entries.length}) ${symbol} (${preFiltered.length}건) 번역·선별 중... `);
     const t0 = Date.now();
     try {
-      const result = await ai.models.generateContent({
+      const result = await callGemmaWithRetry(() => ai.models.generateContent({
         model,
         contents: [
           {
@@ -298,9 +328,9 @@ export async function translateReactionsBatch(
             parts: [{ text: `${TRANSLATE_INSTRUCTION}\n\n---\n\n${buildTranslatePrompt(label, preFiltered)}` }],
           },
         ],
-        // YouTube + Reddit 합쳐 최대 12건까지 한 번에 들어올 수 있어 출력 한도 상향.
+        // YouTube + StockTwits 합쳐 최대 12건까지 한 번에 들어올 수 있어 출력 한도 상향.
         config: { temperature: 0.3, maxOutputTokens: 1800 },
-      });
+      }));
       const text = result.text ?? '';
       const translated = extractTranslatedComments(text);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
@@ -427,14 +457,18 @@ export async function translateNewsBatch(
       continue;
     }
     // Press 슬라이드는 4개만 노출하므로 비용 절감을 위해 상위 6개만 번역.
-    const target = items.slice(0, 6);
-    const rest = items.slice(6);
+    // 단, Press.tsx 와 동일한 우선순위(요약 있는 항목 우선, 그 안에서는 fetch 시간 내림차순 유지)로
+    // 먼저 정렬한 뒤 상위 6개를 고른다. 이렇게 하지 않으면 화면에 노출되는(요약 있는) 항목이
+    // 번역 대상 6개 밖(영어 원문)에 남아 영어로 보이는 문제가 생긴다.
+    const ordered = [...items].sort((a, b) => (b.description ? 1 : 0) - (a.description ? 1 : 0));
+    const target = ordered.slice(0, 6);
+    const rest = ordered.slice(6);
 
     const label = holdingLabelByYahooSymbol[symbol] ?? symbol;
     process.stdout.write(`[gemma/translate-news] (${i + 1}/${entries.length}) ${symbol} (${target.length}건) 번역 중... `);
     const t0 = Date.now();
     try {
-      const result = await ai.models.generateContent({
+      const result = await callGemmaWithRetry(() => ai.models.generateContent({
         model,
         contents: [
           {
@@ -443,7 +477,7 @@ export async function translateNewsBatch(
           },
         ],
         config: { temperature: 0.3, maxOutputTokens: 1500 },
-      });
+      }));
       const text = result.text ?? '';
       const translated = extractTranslatedNews(text);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
