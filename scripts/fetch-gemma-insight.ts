@@ -150,7 +150,10 @@ export async function fetchInsightBatch(
             parts: [{ text: `${SYSTEM_INSTRUCTION}\n\n---\n\n${buildUserPrompt(h)}` }],
           },
         ],
-        config: { temperature: 0.3, maxOutputTokens: 600 },
+        // gemma-4-31b-it 는 호출당 thinking 토큰을 ~900~1400 소모하고 그게 maxOutputTokens
+        // 예산에 포함된다. 600 이면 thinking 만으로 예산이 소진돼 본문이 빈 응답으로 잘렸다.
+        // thinking + headline·body 출력을 모두 담도록 상향. (thinkingBudget 비활성화는 이 모델 미지원)
+        config: { temperature: 0.3, maxOutputTokens: 2048 },
       }));
 
       const text = result.text ?? '';
@@ -328,24 +331,29 @@ export async function translateReactionsBatch(
             parts: [{ text: `${TRANSLATE_INSTRUCTION}\n\n---\n\n${buildTranslatePrompt(label, preFiltered)}` }],
           },
         ],
-        // YouTube + StockTwits 합쳐 최대 12건까지 한 번에 들어올 수 있어 출력 한도 상향.
-        config: { temperature: 0.3, maxOutputTokens: 1800 },
+        // YouTube + StockTwits 합쳐 최대 12건 + thinking(~1000~1400 토큰)을 모두 담도록 상향.
+        config: { temperature: 0.3, maxOutputTokens: 3072 },
       }));
       const text = result.text ?? '';
       const translated = extractTranslatedComments(text);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-      if (translated && translated.length === preFiltered.length) {
+      // 응답 개수가 입력과 정확히 일치하지 않아도, 번역이 온 만큼은 인덱스 순서대로 반영한다.
+      // (모델은 입력 순서대로 출력하므로 잘렸다면 앞에서부터 정상) 나머지는 원본(영어) 유지.
+      if (translated && translated.length > 0) {
+        const n = Math.min(translated.length, preFiltered.length);
         const merged = preFiltered
           .map((c, idx) => {
+            if (idx >= n) return c; // 번역 누락분 — 원본 유지
             const t = translated[idx];
             if (t.relevant === false) return null;
             return { ...c, text: t.text || c.text };
           })
           .filter((c): c is Comment => c !== null);
         out[symbol] = merged;
-        console.log(`완료 ${merged.length}/${preFiltered.length}건 채택 (${elapsed}s)`);
+        const partial = n < preFiltered.length ? ` (부분 ${n}/${preFiltered.length})` : '';
+        console.log(`완료 ${merged.length}/${preFiltered.length}건 채택${partial} (${elapsed}s)`);
       } else {
-        console.log(`길이 mismatch (${elapsed}s) — 원본 유지(휴리스틱만 적용)`);
+        console.log(`번역 응답 없음 (${elapsed}s) — 원본 유지(휴리스틱만 적용)`);
         out[symbol] = preFiltered;
       }
     } catch (err) {
@@ -476,26 +484,32 @@ export async function translateNewsBatch(
             parts: [{ text: `${NEWS_TRANSLATE_INSTRUCTION}\n\n---\n\n${buildNewsTranslatePrompt(label, target)}` }],
           },
         ],
-        config: { temperature: 0.3, maxOutputTokens: 1500 },
+        // 6건 번역(출력 ~650 토큰) + thinking(~1000~1400 토큰)을 모두 담도록 상향.
+        // 1500 이면 thinking 후 출력이 ~128 토큰에서 잘려 JSON 길이 mismatch → 영어 원문 폴백됐다.
+        config: { temperature: 0.3, maxOutputTokens: 4096 },
       }));
       const text = result.text ?? '';
       const translated = extractTranslatedNews(text);
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-      if (translated && translated.length === target.length) {
-        const merged = target.map((n, idx) => {
+      // 개수가 정확히 안 맞아도 번역이 온 만큼은 인덱스 순서대로 반영, 나머지는 원본 유지.
+      if (translated && translated.length > 0) {
+        const n = Math.min(translated.length, target.length);
+        const merged = target.map((item, idx) => {
+          if (idx >= n) return item; // 번역 누락분 — 원본 유지
           const t = translated[idx];
-          const newTitle = t.title || n.title;
-          const newDesc = t.description || n.description;
+          const newTitle = t.title || item.title;
+          const newDesc = t.description || item.description;
           return {
-            ...n,
+            ...item,
             title: newTitle,
             ...(newDesc ? { description: newDesc } : {}),
           };
         });
         out[symbol] = [...merged, ...rest];
-        console.log(`완료 (${elapsed}s)`);
+        const partial = n < target.length ? ` (부분 ${n}/${target.length})` : '';
+        console.log(`완료${partial} (${elapsed}s)`);
       } else {
-        console.log(`길이 mismatch (${elapsed}s) — 원본 유지`);
+        console.log(`번역 응답 없음 (${elapsed}s) — 원본 유지`);
         out[symbol] = items;
       }
     } catch (err) {
