@@ -142,22 +142,29 @@ export async function fetchInsightBatch(
     process.stdout.write(`[gemma] (${i + 1}/${holdings.length}) ${h.ticker} 호출 중... `);
     const t0 = Date.now();
     try {
-      const result = await callGemmaWithRetry(() => ai.models.generateContent({
-        model,
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: `${SYSTEM_INSTRUCTION}\n\n---\n\n${buildUserPrompt(h)}` }],
-          },
-        ],
-        // gemma-4-31b-it 는 호출당 thinking 토큰을 ~900~1400 소모하고 그게 maxOutputTokens
-        // 예산에 포함된다. 600 이면 thinking 만으로 예산이 소진돼 본문이 빈 응답으로 잘렸다.
-        // thinking + headline·body 출력을 모두 담도록 상향. (thinkingBudget 비활성화는 이 모델 미지원)
-        config: { temperature: 0.3, maxOutputTokens: 2048 },
-      }));
+      const callOnce = async (): Promise<{ headline: string; body: string } | null> => {
+        const result = await callGemmaWithRetry(() => ai.models.generateContent({
+          model,
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: `${SYSTEM_INSTRUCTION}\n\n---\n\n${buildUserPrompt(h)}` }],
+            },
+          ],
+          // gemma-4-31b-it 는 호출당 thinking 토큰을 ~900~1400 소모하고 그게 maxOutputTokens
+          // 예산에 포함된다. thinking 이 길면 본문이 잘려 빈 응답이 되므로 넉넉히 잡는다.
+          // (thinkingBudget 비활성화는 이 모델 미지원)
+          config: { temperature: 0.3, maxOutputTokens: 3072 },
+        }));
+        return extractJson(result.text ?? '');
+      };
 
-      const text = result.text ?? '';
-      const parsed = extractJson(text);
+      // thinking 비결정성으로 가끔 본문이 잘려 파싱이 실패한다 → 1회 재호출하면 대개 회복.
+      let parsed = await callOnce();
+      if (!parsed) {
+        process.stdout.write('파싱 실패 — 1회 재시도... ');
+        parsed = await callOnce();
+      }
       const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
       if (parsed) {
         out[h.yahooSymbol] = {
@@ -168,7 +175,7 @@ export async function fetchInsightBatch(
         };
         console.log(`완료 (${elapsed}s)`);
       } else {
-        console.log(`JSON 파싱 실패 (${elapsed}s) — 빈 인사이트로 폴백. 응답: ${text.slice(0, 120)}`);
+        console.log(`JSON 파싱 실패(재시도 후) (${elapsed}s) — 빈 인사이트로 폴백.`);
         out[h.yahooSymbol] = emptyInsight(h.ticker);
       }
     } catch (err) {
